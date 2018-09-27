@@ -32,12 +32,12 @@ Parameters:
 
 Mappings:
 
-    # These are the latest ECS optimized AMIs as of Jan 2018:
+    # These are the latest ECS optimized AMIs as of Feb 2018:
     #
-    #   amzn-ami-2017.09.g-amazon-ecs-optimized
-    #   ECS agent:    1.16.2
+    #   amzn-ami-2017.09.h-amazon-ecs-optimized
+    #   ECS agent:    1.17.1
     #   Docker:       17.09.1-ce
-    #   ecs-init:     1.16.2-1
+    #   ecs-init:     1.17.1-1
     #
     # You can find the latest available on this page of our documentation:
     # http://docs.aws.amazon.com/AmazonECS/latest/developerguide/ecs-optimized_AMI.html
@@ -45,35 +45,35 @@ Mappings:
 
     AWSRegionToAMI:
         us-east-2:
-            AMI: ami-ce1c36ab
+            AMI: ami-b86a5ddd
         us-east-1:
-            AMI: ami-28456852
+            AMI: ami-a7a242da
         us-west-2:
-            AMI: ami-decc7fa6
+            AMI: ami-92e06fea
         us-west-1:
-            AMI: ami-74262414
+            AMI: ami-9ad4dcfa
         eu-west-3:
-            AMI: ami-9aef59e7
+            AMI: ami-698b3d14
         eu-west-2:
-            AMI: ami-67cbd003
+            AMI: ami-f4e20693
         eu-west-1:
-            AMI: ami-1d46df64
+            AMI: ami-0693ed7f
         eu-central-1:
-            AMI: ami-509a053f
+            AMI: ami-0799fa68
         ap-northeast-2:
-            AMI: ami-c212b2ac
+            AMI: ami-a5dd70cb
         ap-northeast-1:
-            AMI: ami-872c4ae1
+            AMI: ami-68ef940e
         ap-southeast-2:
-            AMI: ami-58bb443a
+            AMI: ami-ee884f8c
         ap-southeast-1:
-            AMI: ami-910d72ed
+            AMI: ami-0a622c76
         ca-central-1:
-            AMI: ami-435bde27
+            AMI: ami-5ac94e3e
         ap-south-1:
-            AMI: ami-00491f6f
+            AMI: ami-2e461a41
         sa-east-1:
-            AMI: ami-af521fc3
+            AMI: ami-d44008b8	
 
 Resources:
 
@@ -122,9 +122,10 @@ Resources:
                 "Fn::Base64": !Sub |
                     #!/bin/bash
                     yum install -y https://s3.amazonaws.com/ec2-downloads-windows/SSMAgent/latest/linux_amd64/amazon-ssm-agent.rpm
-                    yum install -y aws-cfn-bootstrap
+                    yum install -y aws-cfn-bootstrap hibagent
                     /opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
                     /opt/aws/bin/cfn-signal -e $? --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSAutoScalingGroup
+                    /usr/bin/enable-ec2-spot-hibernation
 
         Metadata:
             AWS::CloudFormation::Init:
@@ -152,8 +153,6 @@ Resources:
                                 triggers=post.update
                                 path=Resources.ECSLaunchConfiguration.Metadata.AWS::CloudFormation::Init
                                 action=/opt/aws/bin/cfn-init -v --region ${AWS::Region} --stack ${AWS::StackName} --resource ECSLaunchConfiguration
-
-                    services:
 
                         "/etc/awslogs/awscli.conf":
                             content: !Sub |
@@ -202,6 +201,7 @@ Resources:
                                 log_stream_name = ${ECSCluster}
                                 datetime_format = %Y-%m-%dT%H:%M:%SZ
 
+                    services:
                         sysvinit:
                             cfn-hup:
                                 enabled: true
@@ -305,8 +305,42 @@ Resources:
             Roles:
                 - !Ref ECSRole
 
+    ECSServiceAutoScalingRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                    Action:
+                    - 'sts:AssumeRole'
+                    Effect: Allow
+                    Principal:
+                        Service:
+                        - application-autoscaling.amazonaws.com
+            Path: /
+            Policies:
+            - PolicyName: ecs-service-autoscaling
+              PolicyDocument:
+                  Statement:
+                      Effect: Allow
+                      Action:
+                      - application-autoscaling:*
+                      - cloudwatch:DescribeAlarms
+                      - cloudwatch:PutMetricAlarm
+                      - ecs:DescribeServices
+                      - ecs:UpdateService
+                      Resource: "*"
+
 Outputs:
 
     Cluster:
         Description: A reference to the ECS cluster
         Value: !Ref ECSCluster
+
+    ECSServiceAutoScalingRole:
+        Description: A reference to ECS service auto scaling role
+        Value: !GetAtt ECSServiceAutoScalingRole.Arn
+
+    ECSAutoScalingGroupName:
+        Description: A reference to ECS AutoScaling Group Name
+        Value: !Ref ECSAutoScalingGroup
